@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>DIV Artist</title>
+<style>
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center; /* Center horizontally */
+  min-height: 100vh; /* Ensure full viewport height */
+  margin: 0; /* Remove default margins */
+}
+
+#grid-container {
+  display: grid;
+  grid-template-columns: repeat(50, 5px);
+  grid-template-rows: repeat(50, 5px);
+  border: 1px solid black; /* Optional border for the grid */
+  margin-bottom: 20px; /* Space between grid and chat */
+}
+
+.grid-cell {
+  width: 5px;
+  height: 5px;
+  background-color: black; /* Set the initial background color to black */
+  border: none; /* Remove any default cell borders */
+}
+
+#chat-container {
+  width: 50%; /* Adjust as needed */
+  padding: 10px;
+  border: 1px solid #ccc;
+}
+</style>
+</head>
+<body>
+
+<h1>DIV Artist</h1>
+
+<div id="grid-container">
+</div>
+
+<div id="chat-container">
+  <label for="user-input">What would you like me to draw?</label><br>
+  <input type="text" id="user-input" style="width: 100%;"><br><br>
+  <button onclick="sendMessage()">Send</button>
+</div>
+
+<script>
+
+const gridContainer = document.getElementById('grid-container');
+
+// Create the initial grid (same as before)
+for (let row = 1; row <= 50; row++) {
+  for (let col = 1; col <= 50; col++) {
+    const cell = document.createElement('div');
+    cell.className = 'grid-cell';
+    cell.id = `R${row}C${col}`;
+    gridContainer.appendChild(cell);
+  }
+}
+async function sendMessage() {
+    const userInput = document.getElementById("user-input").value;
+    const message = { messages: [{ role: "system", content: "You are a DIV artist. You control a 50x50 grid of divs. Each div has an ID 'R#C#', where # is the row/column (1-50). R1C1 is the top-left.\n\nYour task: Given a user's image request, respond ONLY with a comma-separated list of div IDs to color white to represent the image. Do NOT include extra spaces, punctuation, or JSON-like formatting.\n\nCorrect Example: R10C10,R10C11,R11C10,R11C11\nIncorrect Examples: [\"R10C10\",\"R10C11\"], R10C10, R10C11 (extra spaces), {\"ids\":\"R10C10,R10C11\"}\n\nIf your response deviates from the format, the request will fail." },{ role: "user", content: userInput }] };
+
+    try {
+        const response = await fetch("http://localhost:1234/v1/chat/completions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                model: "your-model-name",
+                messages: message.messages,
+                stream: true
+            })
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let completeResponse = ""; // Accumulate the full response here
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+                console.log("Full response received:", completeResponse);
+                // Extract DIV IDs after full response is concatenated
+                const divIds = completeResponse.match(/\bR\d+C\d+\b/g) || [];
+                console.log("Extracted div IDs:", divIds);
+                colorDivs(divIds);
+                break;
+            }
+
+            const chunk = decoder.decode(value, { stream: true });
+            console.log("Received chunk:", chunk);
+
+            // Parse chunk and extract "content"
+            chunk.split("\n").forEach(line => {
+                if (line.startsWith("data:")) {
+                    try {
+                        const json = JSON.parse(line.slice(5));
+                        if (json.choices && json.choices[0].delta.content) {
+                            completeResponse += json.choices[0].delta.content;
+                        }
+                    } catch (e) {
+                        console.error("Error parsing chunk:", e);
+                    }
+                }
+            });
+        }
+    } catch (err) {
+        console.error("Fetch error:", err);
+    }
+}
+
+function colorDivs(divIds) {
+    divIds.forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.style.backgroundColor = "white";
+        } else {
+            console.warn("DIV ID not found:", id);
+        }
+    });
+}
+
+
+function extractDivIds(data) {
+  // Ensure the response is properly formatted
+  return data
+    .split(',')
+    .map(id => id.trim())
+    .filter(id => /^R\d+C\d+$/.test(id)); // Regex to validate div IDs
+}
+
+function updateGrid(divIds) {
+  divIds.forEach(id => {
+    const element = document.getElementById(id);
+    if (element) {
+      element.style.backgroundColor = 'white';
+    } else {
+      console.log("Invalid ID:", id);
+    }
+  });
+}
+
+</script>
+
+</body>
+</html>
